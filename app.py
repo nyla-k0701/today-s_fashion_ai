@@ -277,6 +277,7 @@ body[data-theme="light"] .ootd-card * {{
   }}
 }}
 
+
 </style>
         """,
         unsafe_allow_html=True,
