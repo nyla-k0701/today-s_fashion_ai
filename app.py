@@ -220,6 +220,7 @@ def inject_global_css(theme: Dict[str, str]):
   background-image: {theme["bg"]};
   background-attachment: fixed;
 }}
+
 .ootd-hero {{
   padding: 20px 22px;
   border-radius: 18px;
@@ -228,9 +229,6 @@ def inject_global_css(theme: Dict[str, str]):
   box-shadow: 0 10px 30px rgba(0,0,0,0.05);
   margin-bottom: 16px;
 }}
-.ootd-hero h1 {{ margin: 0; font-size: 28px; }}
-.ootd-hero .sub {{ margin-top: 6px; font-size: 14px; opacity: 0.8; }}
-.ootd-hero .decor {{ margin-top: 10px; font-size: 18px; letter-spacing: 2px; opacity: 0.9; }}
 
 .ootd-card {{
   padding: 14px 14px;
@@ -240,44 +238,30 @@ def inject_global_css(theme: Dict[str, str]):
   box-shadow: 0 10px 24px rgba(0,0,0,0.04);
 }}
 
-div.stButton > button {{
-  border-radius: 999px !important;
-  padding: 12px 18px !important;
-}}
-.ootd-cta-wrap {{
-  display: flex;
-  justify-content: center;
-  margin: 14px 0 8px 0;
-}}
-.ootd-cta-note {{
-  text-align:center;
-  font-size: 13px;
-  opacity: 0.75;
-  margin-top: 6px;
-}}
-/* ✅ Dark mode support: 카드 배경을 어둡게 + 글자색 밝게 */
-@media (prefers-color-scheme: dark) {
-  .ootd-hero, .ootd-card {
+/* ✅ Dark mode support */
+@media (prefers-color-scheme: dark) {{
+  .ootd-hero, .ootd-card {{
     background: rgba(20, 22, 28, 0.72) !important;
     border: 1px solid rgba(255,255,255,0.10) !important;
-  }
+  }}
   .ootd-hero, .ootd-card,
   .ootd-hero h1,
   .ootd-hero .sub,
-  .ootd-hero .decor {
+  .ootd-hero .decor {{
     color: rgba(255,255,255,0.92) !important;
-  }
-}
+  }}
+}}
 
-/* ✅ Light mode: 기존 스타일 유지 + 글자색 살짝 진하게 */
-@media (prefers-color-scheme: light) {
+/* ✅ Light mode */
+@media (prefers-color-scheme: light) {{
   .ootd-hero, .ootd-card,
   .ootd-hero h1,
   .ootd-hero .sub,
-  .ootd-hero .decor {
+  .ootd-hero .decor {{
     color: rgba(20,20,20,0.95) !important;
-  }
-}
+  }}
+}}
+
 </style>
         """,
         unsafe_allow_html=True,
