@@ -1,6 +1,9 @@
 # app.py
 # "오늘 뭐 입지? OOTD" Streamlit prototype
-# Added: Onboarding -> "빠른 시작용 기본 옷장 프리셋" 자동 생성 (보완전략 2)
+# Updates:
+# 1) Real background images by season (local assets/)
+# 2) On app start: onboarding preset creator appears immediately (when wardrobe empty),
+#    and after creating preset -> auto-generate a virtual outfit and allow saving right away.
 
 import os
 import re
@@ -8,7 +11,9 @@ import json
 import uuid
 import math
 import time
+import base64
 import datetime as dt
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 
 import streamlit as st
@@ -31,6 +36,8 @@ APP_TITLE = "오늘 뭐 입지? OOTD"
 DATA_DIR = ".data"
 IMG_DIR = os.path.join(DATA_DIR, "images")
 DB_PATH = os.path.join(DATA_DIR, "db.json")
+
+ASSET_DIR = Path("assets")
 
 DEFAULT_CATEGORIES = ["상의", "하의", "원피스", "아우터", "신발", "양말", "악세서리", "가방"]
 DEFAULT_COLORS = ["블랙", "화이트", "그레이", "네이비", "베이지", "브라운", "레드", "블루", "그린", "옐로우", "핑크", "퍼플", "기타"]
@@ -62,7 +69,11 @@ def load_db() -> Dict[str, Any]:
             "outfits": [],
             "posts": [],
             "likes": {},
-            "meta": {"created_at": time.time(), "onboarding_completed": False, "onboarding_profile": None},
+            "meta": {
+                "created_at": time.time(),
+                "onboarding_completed": False,
+                "onboarding_profile": None,
+            },
         }
         save_db(db)
         return db
@@ -89,15 +100,11 @@ def now_ts() -> float:
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
-def has_any_real_items(db: Dict[str, Any]) -> bool:
-    # "preset"이 아닌 실제 아이템이 1개라도 있으면 True
-    for it in db.get("items", []):
-        if not it.get("is_preset", False):
-            return True
-    return False
-
 def has_any_items(db: Dict[str, Any]) -> bool:
     return len(db.get("items", [])) > 0
+
+def delete_preset_items(db: Dict[str, Any]) -> None:
+    db["items"] = [it for it in db.get("items", []) if not it.get("is_preset", False)]
 
 
 # ----------------------------
@@ -155,11 +162,11 @@ def fetch_weather_open_meteo(city: str) -> Optional[Dict[str, Any]]:
 
 
 # ----------------------------
-# Context & UI theming (gradient vibe)
+# Theme helpers + background images
 # ----------------------------
 def season_from_temp(temp_c: Optional[float]) -> str:
     if temp_c is None:
-        return "all"
+        return "mild"
     if temp_c <= 5:
         return "winter"
     if temp_c <= 16:
@@ -169,60 +176,84 @@ def season_from_temp(temp_c: Optional[float]) -> str:
     return "summer"
 
 def theme_for_season(season: str) -> Dict[str, str]:
+    # Fallback gradients (used if images missing)
     if season == "winter":
         return {
             "title_emoji": "❄️",
-            "bg": """
-            radial-gradient(circle at 10% 20%, rgba(255,255,255,0.70), rgba(255,255,255,0.0) 35%),
-            radial-gradient(circle at 80% 30%, rgba(255,255,255,0.55), rgba(255,255,255,0.0) 40%),
-            linear-gradient(135deg, rgba(230,240,255,1), rgba(245,250,255,1))
-            """,
+            "bg": "linear-gradient(135deg, rgba(230,240,255,1), rgba(245,250,255,1))",
             "decor": "❄️  ✨  ❄️  ✨",
             "tagline": "차가운 공기에도 따뜻하게—오늘의 코디를 골라드릴게요",
         }
     if season == "summer":
         return {
             "title_emoji": "☀️",
-            "bg": """
-            radial-gradient(circle at 70% 25%, rgba(255,235,160,0.85), rgba(255,235,160,0.0) 45%),
-            radial-gradient(circle at 25% 65%, rgba(255,200,120,0.35), rgba(255,200,120,0.0) 55%),
-            linear-gradient(135deg, rgba(255,250,235,1), rgba(235,248,255,1))
-            """,
+            "bg": "linear-gradient(135deg, rgba(255,250,235,1), rgba(235,248,255,1))",
             "decor": "☀️  🌤️  ✨  🕶️",
             "tagline": "가볍게, 시원하게—상황에 딱 맞는 OOTD 추천",
         }
     if season == "mild":
         return {
             "title_emoji": "🌤️",
-            "bg": """
-            radial-gradient(circle at 80% 25%, rgba(255,245,200,0.55), rgba(255,245,200,0.0) 50%),
-            linear-gradient(135deg, rgba(240,250,255,1), rgba(245,255,250,1))
-            """,
+            "bg": "linear-gradient(135deg, rgba(240,250,255,1), rgba(245,255,250,1))",
             "decor": "🌤️  ✨  🌿  ✨",
             "tagline": "따뜻한 날씨엔 산뜻한 밸런스로—오코추 눌러볼래요?",
         }
     return {
         "title_emoji": "🌸",
-        "bg": """
-        radial-gradient(circle at 25% 20%, rgba(255,210,230,0.55), rgba(255,210,230,0.0) 50%),
-        radial-gradient(circle at 80% 70%, rgba(255,200,150,0.25), rgba(255,200,150,0.0) 55%),
-        linear-gradient(135deg, rgba(255,245,250,1), rgba(245,255,250,1))
-        """,
+        "bg": "linear-gradient(135deg, rgba(255,245,250,1), rgba(245,255,250,1))",
         "decor": "🌸  🍂  ✨  🌸",
         "tagline": "살랑이는 계절감—레이어링까지 센스 있게 추천",
     }
 
-def inject_global_css(theme: Dict[str, str]):
+def encode_image_base64(path: Path) -> Optional[str]:
+    if not path.exists():
+        return None
+    ext = path.suffix.lower().replace(".", "")
+    if ext not in ("png", "jpg", "jpeg", "webp"):
+        return None
+    mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+    data = base64.b64encode(path.read_bytes()).decode("utf-8")
+    return f"data:{mime};base64,{data}"
+
+def background_image_for_season(season: str) -> Optional[str]:
+    # spring_fall: 봄을 기본으로, 원하면 temp 기준 더 쪼개서 fall로 바꿔도 됨
+    mapping = {
+        "winter": ASSET_DIR / "bg_winter.jpg",
+        "summer": ASSET_DIR / "bg_summer.jpg",
+        "mild": ASSET_DIR / "bg_summer.jpg",
+        "spring_fall": ASSET_DIR / "bg_spring.jpg",
+    }
+    # spring 이미지 없고 fall이 있으면 fall로 대체
+    chosen = mapping.get(season, ASSET_DIR / "bg_summer.jpg")
+    data_uri = encode_image_base64(chosen)
+    if data_uri is None and season == "spring_fall":
+        data_uri = encode_image_base64(ASSET_DIR / "bg_fall.jpg")
+    return data_uri
+
+def inject_global_css(theme: Dict[str, str], bg_data_uri: Optional[str]):
+    # 배경: 이미지가 있으면 이미지 + 오버레이, 없으면 gradient fallback
+    if bg_data_uri:
+        bg_css = f"""
+        background-image:
+          linear-gradient(135deg, rgba(255,255,255,0.72), rgba(255,255,255,0.55)),
+          url("{bg_data_uri}");
+        background-size: cover;
+        background-position: center;
+        background-attachment: fixed;
+        """
+    else:
+        bg_css = f"""
+        background-image: {theme["bg"]};
+        background-attachment: fixed;
+        """
+
     st.markdown(
         f"""
 <style>
-/* ---------- Background ---------- */
 .stApp {{
-  background-image: {theme["bg"]};
-  background-attachment: fixed;
+  {bg_css}
 }}
 
-/* ---------- Base Cards ---------- */
 .ootd-hero {{
   padding: 20px 22px;
   border-radius: 18px;
@@ -231,6 +262,9 @@ def inject_global_css(theme: Dict[str, str]):
   box-shadow: 0 10px 30px rgba(0,0,0,0.05);
   margin-bottom: 16px;
 }}
+.ootd-hero h1 {{ margin: 0; font-size: 28px; }}
+.ootd-hero .sub {{ margin-top: 6px; font-size: 14px; opacity: 0.85; }}
+.ootd-hero .decor {{ margin-top: 10px; font-size: 18px; letter-spacing: 2px; opacity: 0.9; }}
 
 .ootd-card {{
   padding: 14px 14px;
@@ -240,15 +274,31 @@ def inject_global_css(theme: Dict[str, str]):
   box-shadow: 0 10px 24px rgba(0,0,0,0.04);
 }}
 
-/* ---------- Dark mode (Streamlit theme) ---------- */
+/* CTA */
+div.stButton > button {{
+  border-radius: 999px !important;
+  padding: 12px 18px !important;
+}}
+.ootd-cta-wrap {{
+  display: flex;
+  justify-content: center;
+  margin: 14px 0 8px 0;
+}}
+.ootd-cta-note {{
+  text-align:center;
+  font-size: 13px;
+  opacity: 0.8;
+  margin-top: 6px;
+}}
+
+/* ✅ Dark mode (Streamlit theme + OS fallback) */
 html[data-theme="dark"] .ootd-hero,
 html[data-theme="dark"] .ootd-card,
 body[data-theme="dark"] .ootd-hero,
 body[data-theme="dark"] .ootd-card {{
-  background: rgba(20, 22, 28, 0.78) !important;
+  background: rgba(20, 22, 28, 0.80) !important;
   border: 1px solid rgba(255,255,255,0.12) !important;
 }}
-
 html[data-theme="dark"] .ootd-hero *,
 html[data-theme="dark"] .ootd-card *,
 body[data-theme="dark"] .ootd-hero *,
@@ -256,28 +306,13 @@ body[data-theme="dark"] .ootd-card * {{
   color: rgba(255,255,255,0.92) !important;
 }}
 
-/* ---------- Dark mode (OS / Browser fallback) ---------- */
 @media (prefers-color-scheme: dark) {{
   .ootd-hero, .ootd-card {{
-    background: rgba(20, 22, 28, 0.78) !important;
+    background: rgba(20, 22, 28, 0.80) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
   }}
   .ootd-hero *, .ootd-card * {{
     color: rgba(255,255,255,0.92) !important;
-  }}
-}}
-
-/* ---------- Light mode ---------- */
-html[data-theme="light"] .ootd-hero *,
-html[data-theme="light"] .ootd-card *,
-body[data-theme="light"] .ootd-hero *,
-body[data-theme="light"] .ootd-card * {{
-  color: rgba(20,20,20,0.95) !important;
-}}
-
-@media (prefers-color-scheme: light) {{
-  .ootd-hero *, .ootd-card * {{
-    color: rgba(20,20,20,0.95) !important;
   }}
 }}
 </style>
@@ -286,11 +321,8 @@ body[data-theme="light"] .ootd-card * {{
     )
 
 
-
-
-
 # ----------------------------
-# Preset wardrobe generator (보완전략 2 핵심)
+# Preset wardrobe generator
 # ----------------------------
 def color_palette_from_pref(pref: str) -> List[str]:
     if pref.startswith("무채"):
@@ -315,11 +347,11 @@ def formality_from_style(style: str) -> float:
 def tags_from_style(style: str) -> List[str]:
     base = [style]
     if style in ("포멀", "클래식"):
-        base += ["단정", "오피스"]
+        base += ["단정", "오피스", "포멀"]
     if style == "스포티":
         base += ["운동", "활동"]
     if style == "캐주얼":
-        base += ["데일리"]
+        base += ["데일리", "캐주얼"]
     if style == "미니멀":
         base += ["무채", "베이직"]
     if style == "러블리":
@@ -329,68 +361,52 @@ def tags_from_style(style: str) -> List[str]:
     return list(dict.fromkeys(base))
 
 def preset_catalog(style: str, palette: List[str]) -> List[Dict[str, Any]]:
-    """
-    최소 구성: 상의 4, 하의 3, 아우터 2, 신발 2, 가방 1, 악세서리 1
-    총 13개 정도(너무 많으면 부담이라 '빠른 시작' 느낌 유지)
-    """
     f = formality_from_style(style)
     tags = tags_from_style(style)
 
-    # pick colors deterministically
     def c(i: int) -> str:
         return palette[i % len(palette)]
 
     items = [
-        # Tops
-        {"category": "상의", "name": f"{c(0)} 베이직 티셔츠", "color": c(0), "warmth": 0.35, "formality": max(0.2, f - 0.15), "tags": tags + ["상의", "기본"]},
-        {"category": "상의", "name": f"{c(1)} 셔츠/블라우스", "color": c(1), "warmth": 0.4, "formality": min(1.0, f + 0.1), "tags": tags + ["상의", "단정"]},
-        {"category": "상의", "name": f"{c(2)} 니트/스웨터", "color": c(2), "warmth": 0.75, "formality": min(1.0, f + 0.05), "tags": tags + ["상의", "보온"]},
-        {"category": "상의", "name": f"{c(3)} 맨투맨/후디", "color": c(3), "warmth": 0.65, "formality": max(0.15, f - 0.25), "tags": tags + ["상의", "캐주얼"]},
+        {"category": "상의", "name": f"{c(0)} 베이직 티셔츠", "color": c(0), "warmth": 0.35, "formality": max(0.2, f - 0.15), "tags": tags + ["기본"]},
+        {"category": "상의", "name": f"{c(1)} 셔츠/블라우스", "color": c(1), "warmth": 0.4, "formality": min(1.0, f + 0.1), "tags": tags + ["단정"]},
+        {"category": "상의", "name": f"{c(2)} 니트/스웨터", "color": c(2), "warmth": 0.75, "formality": min(1.0, f + 0.05), "tags": tags + ["보온"]},
+        {"category": "상의", "name": f"{c(3)} 맨투맨/후디", "color": c(3), "warmth": 0.65, "formality": max(0.15, f - 0.25), "tags": tags + ["캐주얼"]},
 
-        # Bottoms
-        {"category": "하의", "name": f"{c(0)} 데님 팬츠", "color": c(0), "warmth": 0.55, "formality": max(0.2, f - 0.1), "tags": tags + ["하의", "데일리"]},
-        {"category": "하의", "name": f"{c(1)} 슬랙스/와이드 팬츠", "color": c(1), "warmth": 0.55, "formality": min(1.0, f + 0.15), "tags": tags + ["하의", "단정"]},
-        {"category": "하의", "name": f"{c(2)} 스커트/쇼츠", "color": c(2), "warmth": 0.35, "formality": min(1.0, f + 0.05), "tags": tags + ["하의", "포인트"]},
+        {"category": "하의", "name": f"{c(0)} 데님 팬츠", "color": c(0), "warmth": 0.55, "formality": max(0.2, f - 0.1), "tags": tags + ["데일리"]},
+        {"category": "하의", "name": f"{c(1)} 슬랙스/와이드 팬츠", "color": c(1), "warmth": 0.55, "formality": min(1.0, f + 0.15), "tags": tags + ["단정"]},
+        {"category": "하의", "name": f"{c(2)} 스커트/쇼츠", "color": c(2), "warmth": 0.35, "formality": min(1.0, f + 0.05), "tags": tags + ["포인트"]},
 
-        # Outer
-        {"category": "아우터", "name": f"{c(0)} 자켓/블레이저", "color": c(0), "warmth": 0.55, "formality": min(1.0, f + 0.2), "tags": tags + ["아우터", "레이어드"]},
-        {"category": "아우터", "name": f"{c(1)} 코트/패딩(계절용)", "color": c(1), "warmth": 0.9, "formality": min(1.0, f + 0.05), "tags": tags + ["아우터", "보온"]},
+        {"category": "아우터", "name": f"{c(0)} 자켓/블레이저", "color": c(0), "warmth": 0.55, "formality": min(1.0, f + 0.2), "tags": tags + ["레이어드"]},
+        {"category": "아우터", "name": f"{c(1)} 코트/패딩(계절용)", "color": c(1), "warmth": 0.9, "formality": min(1.0, f + 0.05), "tags": tags + ["보온"]},
 
-        # Shoes
-        {"category": "신발", "name": f"{c(0)} 스니커즈", "color": c(0), "warmth": 0.35, "formality": max(0.15, f - 0.25), "tags": tags + ["신발", "데일리"]},
-        {"category": "신발", "name": f"{c(1)} 로퍼/구두", "color": c(1), "warmth": 0.35, "formality": min(1.0, f + 0.2), "tags": tags + ["신발", "포멀"]},
+        {"category": "신발", "name": f"{c(0)} 스니커즈", "color": c(0), "warmth": 0.35, "formality": max(0.15, f - 0.25), "tags": tags + ["데일리"]},
+        {"category": "신발", "name": f"{c(1)} 로퍼/구두", "color": c(1), "warmth": 0.35, "formality": min(1.0, f + 0.2), "tags": tags + ["포멀"]},
 
-        # Bag & accessory
-        {"category": "가방", "name": f"{c(2)} 데일리 백", "color": c(2), "warmth": 0.2, "formality": min(1.0, f + 0.05), "tags": tags + ["가방"]},
-        {"category": "악세서리", "name": f"{c(1)} 심플 악세서리", "color": c(1), "warmth": 0.2, "formality": min(1.0, f + 0.05), "tags": tags + ["악세서리", "심플"]},
+        {"category": "가방", "name": f"{c(2)} 데일리 백", "color": c(2), "warmth": 0.2, "formality": min(1.0, f + 0.05), "tags": tags},
+        {"category": "악세서리", "name": f"{c(1)} 심플 악세서리", "color": c(1), "warmth": 0.2, "formality": min(1.0, f + 0.05), "tags": tags + ["심플"]},
     ]
 
-    # Classic / Formal: reduce sporty hoodie vibe a bit
     if style in ("포멀", "클래식"):
-        items[3]["name"] = f"{c(3)} 가디건/니트 가벼운 레이어"
+        items[3]["name"] = f"{c(3)} 가디건/니트 레이어"
         items[3]["formality"] = min(1.0, f + 0.05)
-        items[3]["tags"] = tags + ["상의", "레이어드"]
+        items[3]["tags"] = tags + ["레이어드"]
 
-    # Sporty: swap loafers to running shoes
     if style == "스포티":
         items[10]["name"] = f"{c(1)} 러닝화"
         items[10]["formality"] = 0.15
-        items[10]["tags"] = tags + ["신발", "운동"]
+        items[10]["tags"] = tags + ["운동"]
 
     return items
 
 def create_preset_wardrobe(db: Dict[str, Any], profile: Dict[str, Any]) -> None:
-    """
-    Generates preset wardrobe items and stores them in db with is_preset=True.
-    """
     style = profile.get("style", "미니멀")
     color_pref = profile.get("color_pref", "무채(블랙/화이트/그레이)")
     palette = color_palette_from_pref(color_pref)
     items = preset_catalog(style, palette)
 
-    # Insert preset items
     for it in items:
-        item = {
+        db["items"].append({
             "id": new_id("preset"),
             "created_at": now_ts(),
             "name": it["name"],
@@ -404,14 +420,10 @@ def create_preset_wardrobe(db: Dict[str, Any], profile: Dict[str, Any]) -> None:
             "warmth": float(it.get("warmth", 0.5)),
             "formality": float(it.get("formality", 0.5)),
             "is_preset": True,
-        }
-        db["items"].append(item)
+        })
 
     db["meta"]["onboarding_completed"] = True
     db["meta"]["onboarding_profile"] = profile
-
-def delete_preset_items(db: Dict[str, Any]) -> None:
-    db["items"] = [it for it in db.get("items", []) if not it.get("is_preset", False)]
 
 
 # ----------------------------
@@ -424,12 +436,11 @@ def score_item_for_context(item: Dict[str, Any], ctx: Dict[str, Any]) -> float:
     warmth = float(item.get("warmth", 0.5))
     formality = float(item.get("formality", 0.5))
 
-    season = ctx.get("season", "all")
+    season = ctx.get("season", "mild")
     tpo = ctx.get("tpo", "기타")
     formality_need = float(ctx.get("formality_need", 0.5))
     precip = ctx.get("precip_prob")
 
-    # TPO preferences
     if tpo in ("직장", "면접", "결혼식"):
         if cat in ("상의", "하의", "아우터", "신발", "원피스"):
             score += 0.6
@@ -445,7 +456,6 @@ def score_item_for_context(item: Dict[str, Any], ctx: Dict[str, Any]) -> float:
     if tpo in ("여행", "데이트", "학교", "캐주얼 외출"):
         score += 0.2
 
-    # Season/warmth
     if season == "winter":
         score += 0.8 * (warmth - 0.3)
     elif season == "summer":
@@ -453,16 +463,13 @@ def score_item_for_context(item: Dict[str, Any], ctx: Dict[str, Any]) -> float:
     else:
         score += 0.3 * (0.6 - abs(warmth - 0.6))
 
-    # Rain
     if precip is not None and precip >= 50:
         if "방수" in tags or "레인" in tags:
             score += 0.4
         if item.get("color") in ("블랙", "네이비", "그레이"):
             score += 0.1
 
-    # Formality match
     score += 0.8 * (1.0 - abs(formality - formality_need))
-
     score += (hash(item.get("id", "")) % 17) / 200.0
     return score
 
@@ -527,71 +534,12 @@ def reason_cards(ctx: Dict[str, Any]) -> Tuple[str, str, str]:
     tpo = ctx.get("tpo", "기타")
     mood = ", ".join(ctx.get("mood", []) or [])
     formality = ctx.get("formality_need", 0.5)
-    tpo_reason = f"상황(TPO)은 '{tpo}'로 설정 · 무드: {mood if mood else '기본'} · 포멀 선호 {formality:.2f}"
+    tpo_reason = f"상황(TPO)은 '{tpo}' · 무드: {mood if mood else '기본'} · 포멀 선호 {formality:.2f}"
 
     body_shape = ctx.get("body_shape") or "미입력"
     note = (ctx.get("body_note") or "").strip()
-    body_reason = f"골격: {body_shape}" + (f" · 메모: {note}" if note else " · 추가 체형 메모 없음")
+    body_reason = f"골격: {body_shape}" + (f" · 메모: {note}" if note else " · 추가 메모 없음")
     return weather_reason, tpo_reason, body_reason
-
-def openai_recommendation(
-    wardrobe_items: List[Dict[str, Any]],
-    ctx: Dict[str, Any],
-    model: str = "gpt-4o-mini",
-) -> Optional[Dict[str, Any]]:
-    if OpenAI is None:
-        return None
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return None
-
-    client = OpenAI(api_key=api_key)
-
-    compact_items = []
-    for it in wardrobe_items[:120]:
-        compact_items.append({
-            "name": it.get("name"),
-            "category": it.get("category"),
-            "color": it.get("color"),
-            "tags": it.get("tags", []),
-            "warmth": it.get("warmth", 0.5),
-            "formality": it.get("formality", 0.5),
-            "is_preset": it.get("is_preset", False),
-        })
-
-    prompt = {
-        "role": "user",
-        "content": (
-            "너는 개인 스타일리스트야. 사용자의 옷장과 오늘의 조건(날씨/TPO/체형)을 보고 "
-            "가장 적합한 코디 1세트를 추천해줘.\n\n"
-            "요구사항:\n"
-            "1) 카테고리 조합은 현실적으로(상의+하의 또는 원피스, 필요 시 아우터)\n"
-            "2) 신발/가방/악세서리는 있으면 포함\n"
-            "3) 추천 이유를 2~4문장으로 간단히\n"
-            "4) 결과는 JSON으로만 반환\n\n"
-            f"[조건]\n{json.dumps(ctx, ensure_ascii=False)}\n\n"
-            f"[옷장]\n{json.dumps(compact_items, ensure_ascii=False)}\n\n"
-            "반환 JSON 스키마:\n"
-            "{"
-            "\"outfit\": {\"아우터\": str|null, \"상의\": str|null, \"하의\": str|null, \"원피스\": str|null, \"신발\": str|null, \"가방\": str|null, \"악세서리\": str|null},"
-            "\"reason\": str"
-            "}"
-        ),
-    }
-
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[prompt],
-            temperature=0.6,
-        )
-        content = resp.choices[0].message.content or ""
-        match = re.search(r"\{.*\}", content, flags=re.S)
-        if not match:
-            return None
-        return json.loads(match.group(0))
-    except Exception:
-        return None
 
 
 # ----------------------------
@@ -620,25 +568,20 @@ def ctx_similarity(a: Dict[str, Any], b: Dict[str, Any]) -> float:
 
     if a.get("temp_c") is not None and b.get("temp_c") is not None:
         ta, tb = bucket_temp(float(a["temp_c"])), bucket_temp(float(b["temp_c"]))
-        score += (1.0 if ta == tb else 0.3 if abs(ta - tb) == 1 else 0.0) * 0.28
-        w_sum += 0.28
+        score += (1.0 if ta == tb else 0.3 if abs(ta - tb) == 1 else 0.0) * 0.30
+        w_sum += 0.30
 
     if a.get("precip_prob") is not None and b.get("precip_prob") is not None:
         pa, pb = bucket_precip(float(a["precip_prob"])), bucket_precip(float(b["precip_prob"]))
-        score += (1.0 if pa == pb else 0.4 if abs(pa - pb) == 1 else 0.0) * 0.18
-        w_sum += 0.18
+        score += (1.0 if pa == pb else 0.4 if abs(pa - pb) == 1 else 0.0) * 0.20
+        w_sum += 0.20
 
     if a.get("tpo") and b.get("tpo"):
-        score += (1.0 if a["tpo"] == b["tpo"] else 0.0) * 0.26
-        w_sum += 0.26
+        score += (1.0 if a["tpo"] == b["tpo"] else 0.0) * 0.30
+        w_sum += 0.30
 
-    score += jaccard(a.get("mood", []), b.get("mood", [])) * 0.18
-    w_sum += 0.18
-
-    if a.get("formality_need") is not None and b.get("formality_need") is not None:
-        fa, fb = float(a["formality_need"]), float(b["formality_need"])
-        score += (1.0 - min(1.0, abs(fa - fb))) * 0.10
-        w_sum += 0.10
+    score += jaccard(a.get("mood", []), b.get("mood", [])) * 0.20
+    w_sum += 0.20
 
     if w_sum <= 0:
         return 0.0
@@ -680,7 +623,7 @@ def item_card(it: Dict[str, Any]):
         if it.get("image_path") and os.path.exists(it["image_path"]):
             st.image(it["image_path"], use_container_width=True)
         else:
-            st.write("🧥" if it.get("category") in ("아우터",) else "👗")
+            st.write("👗")
     with cols[1]:
         preset_badge = " · 프리셋" if it.get("is_preset") else ""
         st.subheader(it.get("name", "이름 없음"))
@@ -716,24 +659,47 @@ def post_card(post: Dict[str, Any], db: Dict[str, Any]):
 
 
 # ----------------------------
+# Helper: onboarding context -> default TPO
+# ----------------------------
+def tpo_from_onboard_context(ctx_str: str) -> str:
+    if ctx_str == "학교":
+        return "학교"
+    if ctx_str == "직장":
+        return "직장"
+    if ctx_str == "학교+직장":
+        return "학교"
+    if ctx_str == "외출/데이트":
+        return "데이트"
+    if ctx_str == "운동/활동":
+        return "운동"
+    if ctx_str == "여행":
+        return "여행"
+    return "캐주얼 외출"
+
+
+# ----------------------------
 # Streamlit App
 # ----------------------------
 st.set_page_config(page_title=APP_TITLE, page_icon="👗", layout="wide")
 db = load_db()
 
-# Session state init
+# Session state
 if "main_view" not in st.session_state:
     st.session_state["main_view"] = "home"  # home | result
 if "last_outfit" not in st.session_state:
     st.session_state["last_outfit"] = None
 
-# Theme
-temp_for_theme = None
+# Theme selection based on last outfit (if exists), else default 18C
+temp_for_theme = 18.0
 if st.session_state.get("last_outfit") and st.session_state["last_outfit"].get("ctx"):
-    temp_for_theme = st.session_state["last_outfit"]["ctx"].get("temp_c")
-season = season_from_temp(float(temp_for_theme)) if temp_for_theme is not None else "mild"
+    t = st.session_state["last_outfit"]["ctx"].get("temp_c")
+    if t is not None:
+        temp_for_theme = float(t)
+
+season = season_from_temp(temp_for_theme)
 theme = theme_for_season(season)
-inject_global_css(theme)
+bg_data_uri = background_image_for_season(season)
+inject_global_css(theme, bg_data_uri)
 
 # HERO
 st.markdown(
@@ -752,34 +718,31 @@ tabs = st.tabs(["🏠 메인(추천)", "🗂️ 옷장 관리", "🔥 인기 코
 
 # -------- Main Tab
 with tabs[0]:
-    # --- ONBOARDING (Preset Wardrobe) ---
+    # ✅ 앱 실행 직후: 옷장이 비어있으면 온보딩을 가장 먼저 띄움
     need_onboarding = (not db["meta"].get("onboarding_completed", False)) and (not has_any_items(db))
+
     if need_onboarding:
-        st.markdown("### 🚀 빠른 시작 설정")
+        st.markdown("### 🚀 빠른 시작: 프리셋 옷장 만들기")
         st.info(
             "처음이라 옷장이 비어 있어요.\n\n"
-            "아래 3~4개 질문만 답하면 **기본 옷장(프리셋)**을 자동으로 만들어서 "
-            "**바로 코디 추천을 체험**할 수 있게 해줄게요!"
+            "아래 질문에 답하면 **기본 옷장(프리셋)**을 만들고, "
+            "**바로 가상 코디를 생성해서 저장**할 수 있게 해줄게요!"
         )
 
         with st.form("onboarding_form"):
-            style = st.selectbox("주로 선호하는 스타일", ONBOARD_STYLE, index=ONBOARD_STYLE.index("미니멀"))
+            style = st.selectbox("선호 스타일", ONBOARD_STYLE, index=ONBOARD_STYLE.index("미니멀"))
             context = st.selectbox("주 활동 상황", ONBOARD_CONTEXT, index=ONBOARD_CONTEXT.index("학교"))
             color_pref = st.selectbox("선호 색감", ONBOARD_COLOR_PREF, index=0)
             wardrobe_size = st.selectbox("옷장 규모(대략)", ONBOARD_WARDROBE_SIZE, index=1)
 
-            submitted = st.form_submit_button("✨ 기본 옷장 만들고 시작하기", type="primary")
+            submitted = st.form_submit_button("✨ 프리셋 옷장 만들고 가상 코디 생성", type="primary")
 
-        cskip1, cskip2 = st.columns([1, 1])
-        with cskip1:
-            if st.button("건너뛰기(직접 옷장 등록할래요)"):
-                db["meta"]["onboarding_completed"] = True
-                db["meta"]["onboarding_profile"] = {"skipped": True}
-                save_db(db)
-                st.success("좋아요! 옷장 관리 탭에서 바로 등록해줘.")
-                st.rerun()
-        with cskip2:
-            st.caption("Tip: 프리셋은 나중에 옷장 탭에서 한 번에 삭제할 수 있어요.")
+        if st.button("건너뛰기(직접 옷장 등록할래요)"):
+            db["meta"]["onboarding_completed"] = True
+            db["meta"]["onboarding_profile"] = {"skipped": True}
+            save_db(db)
+            st.success("좋아요! 옷장 관리 탭에서 아이템을 등록해줘.")
+            st.rerun()
 
         if submitted:
             profile = {
@@ -790,10 +753,46 @@ with tabs[0]:
             }
             create_preset_wardrobe(db, profile)
             save_db(db)
-            st.success("기본 옷장을 만들었어! 이제 오코추로 바로 추천 받아봐 ✨")
+
+            # ✅ 만들자마자 "가상 코디"를 자동 생성하고 결과 화면으로 이동
+            default_temp = 18.0
+            default_precip = 20.0
+            default_tpo = tpo_from_onboard_context(context)
+            default_mood = [style]
+
+            auto_ctx = {
+                "temp_c": float(default_temp),
+                "precip_prob": float(default_precip),
+                "tpo": default_tpo,
+                "body_shape": "",
+                "body_note": "",
+                "mood": default_mood,
+                "formality_need": float(formality_from_style(style)),
+                "season": season_from_temp(default_temp),
+                "city": "Seoul",
+                "weather_summary": "빠른 시작 기본값(데모)",
+            }
+
+            outfit = pick_best_items(db, auto_ctx)
+            outfit_text = outfit_to_text(outfit)
+            w_r, t_r, b_r = reason_cards(auto_ctx)
+
+            st.session_state["last_outfit"] = {
+                "id": new_id("outfit"),
+                "created_at": now_ts(),
+                "ctx": auto_ctx,
+                "outfit": outfit,
+                "outfit_text": outfit_text,
+                "reason_weather": w_r,
+                "reason_tpo": t_r,
+                "reason_body": b_r,
+                "source": "preset+rules",
+                "is_virtual": True,
+            }
+            st.session_state["main_view"] = "result"
             st.rerun()
 
-        st.stop()  # 온보딩 완료 전에는 메인 추천 UI 아래로 내려가지 않음
+        st.stop()
 
     # --- MAIN FLOW: home/result ---
     view = st.session_state.get("main_view", "home")
@@ -836,10 +835,6 @@ with tabs[0]:
             mood = st.multiselect("원하는 무드", DEFAULT_MOODS, default=["미니멀"])
             formality_need = st.slider("포멀함 선호도", 0.0, 1.0, 0.6, 0.05)
 
-            st.markdown("#### 4) 추천 방식 (선택)")
-            use_openai = st.toggle("OpenAI로 더 똑똑하게 추천", value=False, help="OPENAI_API_KEY가 설정되어 있어야 합니다.")
-            model = st.text_input("OpenAI 모델", value="gpt-4o-mini")
-
             st.markdown("</div>", unsafe_allow_html=True)
 
             ctx = {
@@ -863,43 +858,24 @@ with tabs[0]:
             st.markdown('<div class="ootd-cta-note">버튼 한 번이면 오늘의 OOTD가 완성돼요</div>', unsafe_allow_html=True)
 
             if go:
-                wardrobe_items = db.get("items", [])
-                if not wardrobe_items:
+                if not db.get("items"):
                     st.warning("옷장에 아이템이 없어요. 옷장 관리에서 등록해줘!")
                 else:
-                    rec = None
-                    if use_openai:
-                        rec = openai_recommendation(wardrobe_items, ctx, model=model)
+                    outfit = pick_best_items(db, ctx)
+                    outfit_text = outfit_to_text(outfit)
+                    w_r, t_r, b_r = reason_cards(ctx)
 
-                    if rec and isinstance(rec, dict) and "outfit" in rec:
-                        outfit_obj = rec["outfit"]
-                        reason = rec.get("reason", "")
-                        outfit_text = "\n".join([f"- {k}: {v}" for k, v in outfit_obj.items() if v])
-                        st.session_state["last_outfit"] = {
-                            "id": new_id("outfit"),
-                            "created_at": now_ts(),
-                            "ctx": ctx,
-                            "outfit_text": outfit_text,
-                            "reason_text": reason,
-                            "source": "openai",
-                        }
-                    else:
-                        outfit = pick_best_items(db, ctx)
-                        outfit_text = outfit_to_text(outfit)
-                        w_r, t_r, b_r = reason_cards(ctx)
-                        st.session_state["last_outfit"] = {
-                            "id": new_id("outfit"),
-                            "created_at": now_ts(),
-                            "ctx": ctx,
-                            "outfit": outfit,
-                            "outfit_text": outfit_text,
-                            "reason_text": "",
-                            "reason_weather": w_r,
-                            "reason_tpo": t_r,
-                            "reason_body": b_r,
-                            "source": "rules",
-                        }
-
+                    st.session_state["last_outfit"] = {
+                        "id": new_id("outfit"),
+                        "created_at": now_ts(),
+                        "ctx": ctx,
+                        "outfit": outfit,
+                        "outfit_text": outfit_text,
+                        "reason_weather": w_r,
+                        "reason_tpo": t_r,
+                        "reason_body": b_r,
+                        "source": "rules",
+                    }
                     st.session_state["main_view"] = "result"
                     st.rerun()
 
@@ -908,14 +884,7 @@ with tabs[0]:
             st.markdown("#### 👀 상태")
             st.metric("내 옷장 아이템 수", len(db.get("items", [])))
             st.metric("프리셋 아이템 수", sum(1 for it in db.get("items", []) if it.get("is_preset")))
-            st.metric("피드 게시물 수", len(db.get("posts", [])))
-
-            prof = db["meta"].get("onboarding_profile")
-            if prof and not prof.get("skipped"):
-                st.markdown("#### 🎛️ 내 프리셋 기준")
-                st.caption(f"스타일: {prof.get('style')} · 상황: {prof.get('context')} · 색감: {prof.get('color_pref')}")
-                st.caption("프리셋은 ‘추천 체험’용이에요. 실제 옷으로 바꾸면 추천이 더 정확해져요!")
-
+            st.metric("저장된 코디 수", len(db.get("outfits", [])))
             st.markdown("</div>", unsafe_allow_html=True)
 
     else:
@@ -933,6 +902,8 @@ with tabs[0]:
             st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
             st.markdown("#### 코디 구성")
             st.caption(f"추천 방식: {last.get('source')}")
+            if last.get("is_virtual"):
+                st.info("이 코디는 ‘빠른 시작 프리셋’으로 만든 **가상 코디(데모)**예요. 실제 옷을 등록하면 더 정확해져요.")
             if ctx.get("weather_summary"):
                 st.write(f"날씨: {ctx['weather_summary']}")
             st.code(last.get("outfit_text", ""), language="text")
@@ -941,44 +912,21 @@ with tabs[0]:
         with top_row[1]:
             st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
             st.markdown("#### 저장 / 공유")
-            c1, c2 = st.columns(2)
 
-            with c1:
-                if st.button("💾 코디 저장", use_container_width=True):
-                    db["outfits"].append(last)
-                    save_db(db)
-                    st.success("코디를 저장했어!")
+            if st.button("💾 (바로) 코디 저장", use_container_width=True):
+                db["outfits"].append(last)
+                save_db(db)
+                st.success("코디를 저장했어!")
 
-            with c2:
-                if st.button("📣 피드에 게시", use_container_width=True):
-                    title = f"{ctx.get('tpo','오늘')} 코디"
-                    if last.get("reason_text"):
-                        caption = last["reason_text"]
-                    else:
-                        w_r, t_r, b_r = reason_cards(ctx)
-                        caption = f"{w_r}\n{t_r}\n{b_r}"
-                    post = {
-                        "id": new_id("post"),
-                        "created_at": now_ts(),
-                        "title": title,
-                        "caption": caption,
-                        "outfit_text": last.get("outfit_text", ""),
-                        "ctx": ctx,
-                    }
-                    db["posts"].insert(0, post)
-                    db.setdefault("likes", {})[post["id"]] = 0
-                    save_db(db)
-                    st.success("피드에 게시했어! 🔥")
             if st.button("⬅️ 조건 다시 입력하기", use_container_width=True):
                 st.session_state["main_view"] = "home"
                 st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("### 🧠 추천 이유")
-        w_r, t_r, b_r = reason_cards(ctx)
-        w_r = last.get("reason_weather", w_r)
-        t_r = last.get("reason_tpo", t_r)
-        b_r = last.get("reason_body", b_r)
+        w_r = last.get("reason_weather", "")
+        t_r = last.get("reason_tpo", "")
+        b_r = last.get("reason_body", "")
 
         r1, r2, r3 = st.columns(3, gap="large")
         with r1:
@@ -1000,7 +948,7 @@ with tabs[0]:
         st.markdown("### 🔥 유사 인기 코디 레퍼런스")
         refs = get_similar_references(db, ctx, top_k=3)
         if not refs:
-            st.info("아직 피드 게시물이 없어요. 코디를 게시하면 유사 레퍼런스가 여기에 뜹니다!")
+            st.info("아직 피드 게시물이 없어요. 나중에 ‘피드’ 기능을 붙이면 여기에 유사 레퍼런스가 떠요.")
         else:
             for p in refs:
                 with st.container(border=True):
@@ -1011,7 +959,6 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("똑똑한 옷장 관리")
 
-    # Preset controls
     st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
     st.markdown("#### 프리셋(빠른 시작 옷장) 관리")
     preset_count = sum(1 for it in db.get("items", []) if it.get("is_preset"))
@@ -1128,20 +1075,15 @@ with tabs[1]:
         for it in filtered[:80]:
             with st.container(border=True):
                 item_card(it)
-                cdel, cedit = st.columns([1, 3])
-                with cdel:
-                    # 프리셋도 개별 삭제 가능
-                    if st.button("🗑️ 삭제", key=f"del_{it['id']}"):
-                        if it.get("image_path") and os.path.exists(it["image_path"]):
-                            try:
-                                os.remove(it["image_path"])
-                            except Exception:
-                                pass
-                        db["items"] = [x for x in db["items"] if x["id"] != it["id"]]
-                        save_db(db)
-                        st.rerun()
-                with cedit:
-                    st.caption("수정은 간단 버전: 삭제 후 다시 등록해줘!")
+                if st.button("🗑️ 삭제", key=f"del_{it['id']}"):
+                    if it.get("image_path") and os.path.exists(it["image_path"]):
+                        try:
+                            os.remove(it["image_path"])
+                        except Exception:
+                            pass
+                    db["items"] = [x for x in db["items"] if x["id"] != it["id"]]
+                    save_db(db)
+                    st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1150,7 +1092,7 @@ with tabs[2]:
     st.subheader("인기 코디 피드 & 레퍼런스")
     posts = db.get("posts", [])
     if not posts:
-        st.info("아직 게시물이 없어요. 메인에서 추천받은 코디를 '피드에 게시'해봐!")
+        st.info("현재는 데모 단계라 피드 게시 기능을 최소화했어요. (원하면 다시 붙여줄게!)")
     else:
         sort_mode = st.selectbox("정렬", ["최신순", "인기순(트렌딩)"], index=1)
         likes_map = db.get("likes", {}) or {}
@@ -1169,35 +1111,21 @@ with tabs[3]:
     st.subheader("설정 / 데이터")
 
     st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
-    st.markdown("#### OpenAI 사용(선택)")
-    st.write("환경변수 `OPENAI_API_KEY`가 설정되어 있으면 메인 탭에서 OpenAI 추천을 켤 수 있어요.")
-    if OpenAI is None:
-        st.warning("openai 패키지가 설치되어 있지 않아 OpenAI 추천 기능은 비활성입니다. `pip install openai`로 설치해줘.")
-    else:
-        st.success("openai 패키지 로드됨")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
     st.markdown("#### 온보딩 리셋(테스트용)")
-    st.caption("처음 화면(프리셋 생성)부터 다시 테스트하고 싶을 때 사용해.")
+    st.caption("앱 실행 직후 온보딩 화면부터 다시 테스트하고 싶을 때 사용해.")
     if st.button("🔁 온보딩 상태 초기화", use_container_width=True):
         db["meta"]["onboarding_completed"] = False
         db["meta"]["onboarding_profile"] = None
-        # 프리셋도 함께 삭제하는 게 테스트에 편함
         delete_preset_items(db)
         save_db(db)
-        st.success("초기화 완료. 메인 탭으로 가면 온보딩이 다시 뜹니다.")
         st.session_state["main_view"] = "home"
         st.session_state["last_outfit"] = None
+        st.success("초기화 완료! 메인 탭으로 가면 온보딩이 다시 뜹니다.")
         st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("---")
-
     st.markdown('<div class="ootd-card">', unsafe_allow_html=True)
-    st.markdown("#### 데이터 내보내기/초기화")
+    st.markdown("#### DB 내보내기/초기화")
     c1, c2 = st.columns(2)
     with c1:
         st.download_button(
@@ -1226,8 +1154,8 @@ with tabs[3]:
                 "meta": {"reset_at": now_ts(), "onboarding_completed": False, "onboarding_profile": None},
             }
             save_db(db)
-            st.success("초기화 완료. 새로 시작해봐!")
             st.session_state["main_view"] = "home"
             st.session_state["last_outfit"] = None
+            st.success("초기화 완료. 새로 시작해봐!")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
