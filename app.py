@@ -125,7 +125,7 @@ with tab1:
             db["meta"]["onboarding_done"] = True
             save_db(db)
             st.success("프리셋 옷장 생성 완료")
-            st.experimental_rerun()
+            st.rerun()
     else:
         st.success("오늘의 코디 예시")
         for it in db["items"]:
