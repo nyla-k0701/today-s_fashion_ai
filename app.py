@@ -332,9 +332,17 @@ body[data-theme="dark"] .ootd-card * {{
 def get_openai_client() -> OpenAI:
     if OpenAI is None:
         raise RuntimeError("openai 패키지가 설치되지 않았어요. requirements에 openai를 추가해 주세요.")
-    api_key = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", None)
+
+    # ✅ 우선순위: 사이드바 입력 → 환경변수 → st.secrets
+    api_key = (
+        st.session_state.get("OPENAI_API_KEY")
+        or os.getenv("OPENAI_API_KEY")
+        or st.secrets.get("OPENAI_API_KEY", None)
+    )
+
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY가 설정되지 않았어요. 환경변수 또는 .streamlit/secrets.toml에 넣어주세요.")
+        raise RuntimeError("OpenAI API 키가 설정되지 않았어요. 사이드바에서 입력해 주세요.")
+
     return OpenAI(api_key=api_key)
 
 
@@ -804,6 +812,25 @@ def tpo_from_onboard_context(ctx_str: str) -> str:
 # Streamlit App
 # ----------------------------
 st.set_page_config(page_title=APP_TITLE, page_icon="👗", layout="wide")
+# =========================
+# Sidebar: API Key Settings
+# =========================
+with st.sidebar:
+    st.markdown("### 🔑 AI 설정")
+    st.caption("의류 이미지 분석(AI 자동 입력)을 사용하려면 OpenAI API 키가 필요해요.")
+
+    api_key_input = st.text_input(
+        "OpenAI API Key",
+        type="password",
+        placeholder="sk-...",
+        help="입력한 키는 브라우저 세션에만 저장돼요.",
+    )
+
+    if api_key_input:
+        st.session_state["OPENAI_API_KEY"] = api_key_input
+        st.success("API 키가 설정됐어요 ✅")
+    else:
+        st.info("API 키를 입력하면 AI 자동 입력 기능이 활성화돼요.")
 db = load_db()
 
 if "main_view" not in st.session_state:
@@ -1127,6 +1154,15 @@ with tabs[1]:
                         st.success(f"자동 입력 완료! (confidence {pred.get('confidence', 0.0):.2f})")
                     except Exception as e:
                         st.error(f"AI 자동 입력 실패: {e}")
+            if ai_fill:
+                if not st.session_state.get("OPENAI_API_KEY"):
+                    st.warning("사이드바에서 OpenAI API 키를 먼저 입력해 주세요 🔑")
+                elif uploaded is None:
+                    st.warning("AI 자동 입력은 이미지 업로드가 필요해요!")
+                else:
+                    with st.spinner("AI가 아이템 속성을 분석 중..."):
+                        pred = ai_infer_clothing_attributes(uploaded, name)
+        ...
 
             c1, c2, c3, c4 = st.columns(4)
             with c1:
