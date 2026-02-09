@@ -238,26 +238,41 @@ def inject_global_css(theme: Dict[str, str]):
   box-shadow: 0 10px 24px rgba(0,0,0,0.04);
 }}
 
-/* ✅ Dark mode support */
+/* ✅ Streamlit theme 기반(가장 확실) */
+html[data-theme="dark"] .ootd-hero,
+html[data-theme="dark"] .ootd-card,
+body[data-theme="dark"] .ootd-hero,
+body[data-theme="dark"] .ootd-card {{
+  background: rgba(20, 22, 28, 0.78) !important;
+  border: 1px solid rgba(255,255,255,0.12) !important;
+}}
+html[data-theme="dark"] .ootd-hero *,
+html[data-theme="dark"] .ootd-card *,
+body[data-theme="dark"] .ootd-hero *,
+body[data-theme="dark"] .ootd-card * {{
+  color: rgba(255,255,255,0.92) !important;
+}}
+
+/* ✅ OS/브라우저 기반 fallback */
 @media (prefers-color-scheme: dark) {{
   .ootd-hero, .ootd-card {{
-    background: rgba(20, 22, 28, 0.72) !important;
-    border: 1px solid rgba(255,255,255,0.10) !important;
+    background: rgba(20, 22, 28, 0.78) !important;
+    border: 1px solid rgba(255,255,255,0.12) !important;
   }}
-  .ootd-hero, .ootd-card,
-  .ootd-hero h1,
-  .ootd-hero .sub,
-  .ootd-hero .decor {{
+  .ootd-hero *, .ootd-card * {{
     color: rgba(255,255,255,0.92) !important;
   }}
 }}
 
-/* ✅ Light mode */
+/* ✅ Light 모드 */
+html[data-theme="light"] .ootd-hero *,
+html[data-theme="light"] .ootd-card *,
+body[data-theme="light"] .ootd-hero *,
+body[data-theme="light"] .ootd-card * {{
+  color: rgba(20,20,20,0.95) !important;
+}}
 @media (prefers-color-scheme: light) {{
-  .ootd-hero, .ootd-card,
-  .ootd-hero h1,
-  .ootd-hero .sub,
-  .ootd-hero .decor {{
+  .ootd-hero *, .ootd-card * {{
     color: rgba(20,20,20,0.95) !important;
   }}
 }}
