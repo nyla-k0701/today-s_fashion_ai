@@ -255,6 +255,29 @@ div.stButton > button {{
   opacity: 0.75;
   margin-top: 6px;
 }}
+/* ✅ Dark mode support: 카드 배경을 어둡게 + 글자색 밝게 */
+@media (prefers-color-scheme: dark) {
+  .ootd-hero, .ootd-card {
+    background: rgba(20, 22, 28, 0.72) !important;
+    border: 1px solid rgba(255,255,255,0.10) !important;
+  }
+  .ootd-hero, .ootd-card,
+  .ootd-hero h1,
+  .ootd-hero .sub,
+  .ootd-hero .decor {
+    color: rgba(255,255,255,0.92) !important;
+  }
+}
+
+/* ✅ Light mode: 기존 스타일 유지 + 글자색 살짝 진하게 */
+@media (prefers-color-scheme: light) {
+  .ootd-hero, .ootd-card,
+  .ootd-hero h1,
+  .ootd-hero .sub,
+  .ootd-hero .decor {
+    color: rgba(20,20,20,0.95) !important;
+  }
+}
 </style>
         """,
         unsafe_allow_html=True,
