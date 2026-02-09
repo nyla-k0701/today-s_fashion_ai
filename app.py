@@ -1129,62 +1129,68 @@ with tabs[1]:
         st.session_state.setdefault("ai_formality", 0.5)
         st.session_state.setdefault("ai_tags", "")
 
-        with st.form("add_item", clear_on_submit=True):
-            name = st.text_input("아이템 이름(예: 블랙 블레이저, 데님 팬츠)")
-            uploaded = st.file_uploader("이미지 업로드(선택) — AI 자동 입력은 이미지가 필요해요", type=["png", "jpg", "jpeg", "webp"])
-            link = st.text_input("구매 링크(선택)")
+       with st.form("add_item", clear_on_submit=True):
+    name = st.text_input("아이템 이름(예: 블랙 블레이저, 데님 팬츠)")
+    uploaded = st.file_uploader(
+        "이미지 업로드(선택) — AI 자동 입력은 이미지가 필요해요",
+        type=["png", "jpg", "jpeg", "webp"]
+    )
+    link = st.text_input("구매 링크(선택)")
 
-            st.markdown("##### 🤖 번거로운 속성(색/기장/넥라인/보온감)을 AI가 채워줄게요")
-            ai_fill = st.form_submit_button("🤖 AI로 자동 입력(사진 분석)", type="secondary")
+    st.markdown("##### 🤖 번거로운 속성(색/기장/넥라인/보온감)을 AI가 채워줄게요")
+    ai_fill = st.form_submit_button("🤖 AI로 자동 입력(사진 분석)", type="secondary")
 
-            if ai_fill:
-                if uploaded is None:
-                    st.warning("AI 자동 입력은 이미지 업로드가 있어야 해요!")
-                else:
-                    try:
-                        with st.spinner("AI가 아이템 속성을 분석 중..."):
-                            pred = ai_infer_clothing_attributes(uploaded, name)
-                        st.session_state["ai_category"] = pred["category"]
-                        st.session_state["ai_color"] = pred["color"]
-                        st.session_state["ai_length"] = pred["length"]
-                        st.session_state["ai_neckline"] = pred["neckline"]
-                        st.session_state["ai_warmth"] = float(pred["warmth"])
-                        st.session_state["ai_formality"] = float(pred["formality"])
-                        st.session_state["ai_tags"] = ", ".join(pred.get("tags", []))
-                        st.success(f"자동 입력 완료! (confidence {pred.get('confidence', 0.0):.2f})")
-                    except Exception as e:
-                        st.error(f"AI 자동 입력 실패: {e}")
-            if ai_fill:
-                if not st.session_state.get("OPENAI_API_KEY"):
-                    st.warning("사이드바에서 OpenAI API 키를 먼저 입력해 주세요 🔑")
-                elif uploaded is None:
-                    st.warning("AI 자동 입력은 이미지 업로드가 필요해요!")
-                else:
-                    with st.spinner("AI가 아이템 속성을 분석 중..."):
-                        pred = ai_infer_clothing_attributes(uploaded, name)
-        ...
+    # ✅ AI 자동 입력 (단 한 번만)
+    if ai_fill:
+        if not st.session_state.get("OPENAI_API_KEY"):
+            st.warning("사이드바에서 OpenAI API 키를 먼저 입력해 주세요 🔑")
+        elif uploaded is None:
+            st.warning("AI 자동 입력은 이미지 업로드가 필요해요!")
+        else:
+            try:
+                with st.spinner("AI가 아이템 속성을 분석 중..."):
+                    pred = ai_infer_clothing_attributes(uploaded, name)
 
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                warmth = st.slider("보온감", 0.0, 1.0, float(st.session_state["ai_warmth"]), 0.05)
-            with c2:
-                formality = st.slider("포멀함", 0.0, 1.0, float(st.session_state["ai_formality"]), 0.05)
-            with c3:
-                category = st.selectbox(
-                    "카테고리",
-                    DEFAULT_CATEGORIES,
-                    index=DEFAULT_CATEGORIES.index(st.session_state["ai_category"])
-                    if st.session_state["ai_category"] in DEFAULT_CATEGORIES
-                    else 0,
-                )
-            with c4:
-                color = st.selectbox(
-                    "색상",
-                    DEFAULT_COLORS,
-                    index=DEFAULT_COLORS.index(st.session_state["ai_color"])
-                    if st.session_state["ai_color"] in DEFAULT_COLORS
-                    else 0,
-                )
+                st.session_state["ai_category"] = pred["category"]
+                st.session_state["ai_color"] = pred["color"]
+                st.session_state["ai_length"] = pred["length"]
+                st.session_state["ai_neckline"] = pred["neckline"]
+                st.session_state["ai_warmth"] = float(pred["warmth"])
+                st.session_state["ai_formality"] = float(pred["formality"])
+                st.session_state["ai_tags"] = ", ".join(pred.get("tags", []))
+
+                st.success(f"자동 입력 완료! (confidence {pred.get('confidence', 0.0):.2f})")
+            except Exception as e:
+                st.error(f"AI 자동 입력 실패: {e}")
+
+    # ✅ 여기부터는 if ai_fill 과 같은 들여쓰기 레벨
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        warmth = st.slider(
+            "보온감", 0.0, 1.0,
+            float(st.session_state["ai_warmth"]), 0.05
+        )
+    with c2:
+        formality = st.slider(
+            "포멀함", 0.0, 1.0,
+            float(st.session_state["ai_formality"]), 0.05
+        )
+    with c3:
+        category = st.selectbox(
+            "카테고리",
+            DEFAULT_CATEGORIES,
+            index=DEFAULT_CATEGORIES.index(st.session_state["ai_category"])
+            if st.session_state["ai_category"] in DEFAULT_CATEGORIES else 0,
+        )
+    with c4:
+        color = st.selectbox(
+            "색상",
+            DEFAULT_COLORS,
+            index=DEFAULT_COLORS.index(st.session_state["ai_color"])
+            if st.session_state["ai_color"] in DEFAULT_COLORS else 0,
+        )
+
+    submitted = st.form_submit_button("➕ 등록", type="primary")
 
             c5, c6 = st.columns(2)
             with c5:
