@@ -114,7 +114,7 @@ tab1, tab2, tab3 = st.tabs(["🏠 추천", "🗂️ 옷장", "⚙️ 초기화"]
 
 # ========== 탭 1: 추천 ==========
 with tab1:
-    if not db["meta"]["onboarding_done"]:
+    if not db.get("meta", {}).get("onboarding_done", False):
         st.markdown("### 🚀 빠른 시작")
         if st.button("프리셋 옷장 생성"):
             db["items"] = [
